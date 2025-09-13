@@ -38,13 +38,30 @@ distrobox enter gitbutler-env -- bash -c "cd /tmp && tar -xzf GitButler.AppImage
 distrobox enter gitbutler-env -- bash -c "cd /tmp && mkdir -p ~/.local/bin && cp GitButler_0.16.1_amd64.AppImage ~/.local/bin/gitbutler && chmod +x ~/.local/bin/gitbutler"
 ```
 
-## Step 6: Test GitButler Installation
+## Step 6: Install Git and Setup CLI Tools
+
+Install git in the container:
+```bash
+distrobox enter gitbutler-env -- bash -c "sudo dnf install -y git"
+```
+
+Create symlink for GitButler CLI tool ('but' command):
+```bash
+# First, run GitButler to mount the AppImage, then create symlink
+distrobox enter gitbutler-env -- bash -c "~/.local/bin/gitbutler &"
+# Wait a moment for AppImage to mount, then create symlink
+distrobox enter gitbutler-env -- bash -c "sudo ln -sf '/tmp/.mount_gitbut*/usr/bin/but' /usr/local/bin/but"
+```
+
+## Step 7: Test GitButler Installation
 
 ```bash
 distrobox enter gitbutler-env -- bash -c "~/.local/bin/gitbutler --version"
+distrobox enter gitbutler-env -- bash -c "but --help"
+distrobox enter gitbutler-env -- bash -c "git --version"
 ```
 
-## Step 7: Create Host System Launcher Script
+## Step 8: Create Host System Launcher Script
 
 Create `/home/uratmangun/.local/bin/gitbutler-launcher`:
 
@@ -65,7 +82,7 @@ Make it executable:
 chmod +x ~/.local/bin/gitbutler-launcher
 ```
 
-## Step 8: Create Desktop Entry
+## Step 9: Create Desktop Entry
 
 Create `/home/uratmangun/.local/share/applications/gitbutler.desktop`:
 
@@ -82,7 +99,7 @@ StartupNotify=true
 StartupWMClass=GitButler
 ```
 
-## Step 9: Extract and Install GitButler Icon
+## Step 10: Extract and Install GitButler Icon
 
 ```bash
 # Extract AppImage contents
@@ -104,6 +121,8 @@ After installation, you can use GitButler in several ways:
 1. **From Applications Menu**: Search for "GitButler" and click to launch
 2. **Command Line**: Run `gitbutler-launcher`
 3. **Direct Container Access**: `distrobox enter gitbutler-env -- ~/.local/bin/gitbutler`
+4. **GitButler CLI**: `distrobox enter gitbutler-env -- but <command>`
+5. **Git Commands**: `distrobox enter gitbutler-env -- git <command>`
 
 ## Why This Method Works
 
