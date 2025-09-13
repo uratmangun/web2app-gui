@@ -256,6 +256,12 @@ public:
             
             for (const auto& entry : std::filesystem::directory_iterator(apps_dir)) {
                 if (entry.path().extension() == ".desktop") {
+                    // Skip favorites desktop files in the list (they're duplicates)
+                    std::string filename = entry.path().filename().string();
+                    if (filename.find("_fav.desktop") != std::string::npos) {
+                        continue;
+                    }
+                    
                     std::ifstream file(entry.path());
                     std::string line;
                     std::string app_name;
@@ -277,6 +283,10 @@ public:
                     }
                 }
             }
+            
+            // Update desktop database after refresh
+            system(("update-desktop-database \"" + apps_dir + "\"").c_str());
+            
         } catch (const std::exception& e) {
             std::cerr << "Error refreshing app list: " << e.what() << std::endl;
         }
@@ -307,8 +317,15 @@ public:
                     std::string icon_dir = home_dir + "/.local/share/icons/webapps";
                     std::string data_dir = home_dir + "/.config/webapps/" + std::string(app_name);
 
+                    // Remove main desktop file and icon
                     std::filesystem::remove(apps_dir + "/" + std::string(app_name) + ".desktop");
                     std::filesystem::remove(icon_dir + "/" + std::string(app_name) + ".png");
+                    
+                    // Also remove favorites desktop file and icon if they exist
+                    std::filesystem::remove(apps_dir + "/" + std::string(app_name) + "_fav.desktop");
+                    std::filesystem::remove(icon_dir + "/" + std::string(app_name) + "_fav.png");
+                    
+                    // Remove user data directory
                     std::filesystem::remove_all(data_dir);
 
                     show_info_dialog("Web app '" + std::string(app_name) + "' removed successfully!");
@@ -376,7 +393,112 @@ public:
             gtk_tree_model_get(model, &iter, 0, &app_name, -1);
 
             try {
-                std::string desktop_filename = std::string(app_name) + ".desktop";
+                // Get the custom icon URL from the form
+                const char* icon_url = gtk_entry_get_text(GTK_ENTRY(icon_entry));
+                
+                std::string home_dir = std::getenv("HOME");
+                std::string apps_dir = home_dir + "/.local/share/applications";
+                std::string icon_dir = home_dir + "/.local/share/icons/webapps";
+                
+                // Read the existing desktop file to get URL and other details
+                std::string existing_desktop_file = apps_dir + "/" + std::string(app_name) + ".desktop";
+                std::ifstream existing_file(existing_desktop_file);
+                std::string url_str, browser_cmd, data_dir;
+                
+                if (existing_file.is_open()) {
+                    std::string line;
+                    while (std::getline(existing_file, line)) {
+                        if (line.find("Exec=") == 0) {
+                            // Extract browser command and URL from Exec line
+                            size_t app_start = line.find("--app=\"");
+                            if (app_start != std::string::npos) {
+                                app_start += 7; // length of "--app=\""
+                                size_t app_end = line.find("\"", app_start);
+                                if (app_end != std::string::npos) {
+                                    url_str = line.substr(app_start, app_end - app_start);
+                                }
+                            }
+                            
+                            size_t data_start = line.find("--user-data-dir=\"");
+                            if (data_start != std::string::npos) {
+                                data_start += 17; // length of "--user-data-dir=\""
+                                size_t data_end = line.find("\"", data_start);
+                                if (data_end != std::string::npos) {
+                                    data_dir = line.substr(data_start, data_end - data_start);
+                                }
+                            }
+                            
+                            // Extract browser command (everything before --user-data-dir)
+                            size_t browser_end = line.find(" --user-data-dir");
+                            if (browser_end != std::string::npos) {
+                                browser_cmd = line.substr(5, browser_end - 5); // skip "Exec="
+                            }
+                        }
+                    }
+                    existing_file.close();
+                }
+                
+                if (url_str.empty() || browser_cmd.empty()) {
+                    show_error_dialog("Could not read existing app configuration!");
+                    g_free(app_name);
+                    return;
+                }
+
+                // Create custom desktop file name for favorites
+                std::string fav_desktop_filename = std::string(app_name) + "_fav.desktop";
+                std::string fav_desktop_file = apps_dir + "/" + fav_desktop_filename;
+                
+                // Handle custom icon if provided
+                std::string icon_file = icon_dir + "/" + std::string(app_name) + "_fav.png";
+                if (strlen(icon_url) > 0) {
+                    std::filesystem::create_directories(icon_dir);
+                    std::string cmd = "curl -fsSL \"" + std::string(icon_url) + "\" -o \"" + icon_file + "\"";
+                    if (system(cmd.c_str()) != 0) {
+                        generate_default_icon(app_name, icon_file);
+                    }
+                } else {
+                    // Use the original icon file
+                    icon_file = icon_dir + "/" + std::string(app_name) + ".png";
+                }
+
+                // Extract domain for better StartupWMClass
+                std::string domain = url_str;
+                size_t start = domain.find("://");
+                if (start != std::string::npos) {
+                    domain = domain.substr(start + 3);
+                }
+                size_t end = domain.find("/");
+                if (end != std::string::npos) {
+                    domain = domain.substr(0, end);
+                }
+                if (domain.substr(0, 4) == "www.") {
+                    domain = domain.substr(4);
+                }
+
+                // Create custom desktop file with the specified icon
+                std::ofstream file(fav_desktop_file);
+                file << "[Desktop Entry]" << std::endl;
+                file << "Version=1.0" << std::endl;
+                file << "Type=Application" << std::endl;
+                file << "Name=" << app_name << std::endl;
+                file << "Comment=Web application for " << domain << std::endl;
+                file << "Exec=" << browser_cmd << " --user-data-dir=\"" << data_dir << "\" --app=\"" << url_str << "\"" << std::endl;
+                file << "Icon=" << icon_file << std::endl;
+                file << "Terminal=false" << std::endl;
+                file << "StartupNotify=true" << std::endl;
+                file << "Categories=Network;WebBrowser;WebApps;" << std::endl;
+                file << "MimeType=text/html;text/xml;application/xhtml+xml;" << std::endl;
+                file << "StartupWMClass=crx_" << domain << std::endl;
+                file.close();
+
+                // Make executable
+                std::filesystem::permissions(fav_desktop_file, 
+                                           std::filesystem::perms::owner_all | 
+                                           std::filesystem::perms::group_read | 
+                                           std::filesystem::perms::others_read);
+
+                // Update desktop database
+                system(("update-desktop-database \"" + apps_dir + "\"").c_str());
                 
                 // Get current favorites list
                 std::string get_cmd = "gsettings get org.gnome.shell favorite-apps";
@@ -400,18 +522,18 @@ public:
                 }
 
                 // Check if app is already in favorites
-                if (current_favorites.find("'" + desktop_filename + "'") != std::string::npos) {
+                if (current_favorites.find("'" + fav_desktop_filename + "'") != std::string::npos) {
                     show_info_dialog("'" + std::string(app_name) + "' is already in favorites!");
                     g_free(app_name);
                     return;
                 }
 
-                // Add to favorites using gsettings
-                std::string set_cmd = "gsettings set org.gnome.shell favorite-apps \"$(gsettings get org.gnome.shell favorite-apps | sed 's/.$//'), '" + desktop_filename + "']\"";
+                // Add custom desktop file to favorites using gsettings
+                std::string set_cmd = "gsettings set org.gnome.shell favorite-apps \"$(gsettings get org.gnome.shell favorite-apps | sed 's/.$//'), '" + fav_desktop_filename + "']\"";
                 
                 int result = system(set_cmd.c_str());
                 if (result == 0) {
-                    show_info_dialog("'" + std::string(app_name) + "' added to favorites successfully!\nYou may need to press Alt+F2, type 'r' and press Enter to restart GNOME Shell for changes to take effect.");
+                    show_info_dialog("'" + std::string(app_name) + "' added to favorites successfully with custom icon!\nYou may need to press Alt+F2, type 'r' and press Enter to restart GNOME Shell for changes to take effect.");
                 } else {
                     show_error_dialog("Failed to add '" + std::string(app_name) + "' to favorites!");
                 }
