@@ -118,6 +118,11 @@ public:
         GtkWidget* button_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
         gtk_box_pack_start(GTK_BOX(list_vbox), button_hbox, FALSE, FALSE, 0);
 
+        // Edit button
+        GtkWidget* edit_btn = gtk_button_new_with_label("Edit Selected App");
+        gtk_box_pack_start(GTK_BOX(button_hbox), edit_btn, TRUE, TRUE, 0);
+        g_signal_connect(edit_btn, "clicked", G_CALLBACK(on_edit_clicked), this);
+
         // Add to favorites button
         GtkWidget* favorites_btn = gtk_button_new_with_label("Add to Favorites");
         gtk_box_pack_start(GTK_BOX(button_hbox), favorites_btn, TRUE, TRUE, 0);
@@ -137,6 +142,11 @@ public:
     static void on_refresh_clicked(GtkWidget* widget, gpointer user_data) {
         Web2AppManager* manager = static_cast<Web2AppManager*>(user_data);
         manager->refresh_app_list();
+    }
+
+    static void on_edit_clicked(GtkWidget* widget, gpointer user_data) {
+        Web2AppManager* manager = static_cast<Web2AppManager*>(user_data);
+        manager->edit_web_app();
     }
 
     static void on_remove_clicked(GtkWidget* widget, gpointer user_data) {
@@ -176,6 +186,9 @@ public:
                 std::string cmd = "curl -fsSL \"" + std::string(icon_url) + "\" -o \"" + icon_file + "\"";
                 if (system(cmd.c_str()) != 0) {
                     generate_default_icon(name, icon_file);
+                } else {
+                    // Resize downloaded icon to 200x200
+                    resize_icon_to_200x200(icon_file);
                 }
             } else {
                 generate_default_icon(name, icon_file);
@@ -231,8 +244,11 @@ public:
                                        std::filesystem::perms::group_read | 
                                        std::filesystem::perms::others_read);
 
-            // Update desktop database
+            // Update desktop database and refresh icon cache
             system(("update-desktop-database \"" + apps_dir + "\"").c_str());
+            system("gtk-update-icon-cache -f -t ~/.local/share/icons/ 2>/dev/null || true");
+            system("gtk-update-icon-cache -f -t /usr/share/icons/hicolor/ 2>/dev/null || true");
+            system("xdg-desktop-menu forceupdate 2>/dev/null || true");
 
             show_info_dialog("Web app '" + std::string(name) + "' created successfully!");
 
@@ -245,6 +261,208 @@ public:
 
         } catch (const std::exception& e) {
             show_error_dialog("Failed to create web app: " + std::string(e.what()));
+        }
+    }
+
+    void edit_web_app() {
+        GtkTreeSelection* selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(app_list));
+        GtkTreeIter iter;
+        GtkTreeModel* model;
+
+        if (gtk_tree_selection_get_selected(selection, &model, &iter)) {
+            gchar* app_name;
+            gtk_tree_model_get(model, &iter, 0, &app_name, -1);
+
+            try {
+                std::string home_dir = std::getenv("HOME");
+                std::string apps_dir = home_dir + "/.local/share/applications";
+                std::string existing_desktop_file = apps_dir + "/" + std::string(app_name) + ".desktop";
+                
+                // Read current values from desktop file
+                std::ifstream existing_file(existing_desktop_file);
+                std::string current_name = app_name;
+                std::string current_url, current_icon_url;
+                
+                if (existing_file.is_open()) {
+                    std::string line;
+                    while (std::getline(existing_file, line)) {
+                        if (line.find("Exec=") == 0) {
+                            size_t app_start = line.find("--app=\"");
+                            if (app_start != std::string::npos) {
+                                app_start += 7;
+                                size_t app_end = line.find("\"", app_start);
+                                if (app_end != std::string::npos) {
+                                    current_url = line.substr(app_start, app_end - app_start);
+                                }
+                            }
+                        }
+                    }
+                    existing_file.close();
+                }
+
+                // Create edit dialog
+                GtkWidget* dialog = gtk_dialog_new_with_buttons("Edit Web App",
+                    GTK_WINDOW(window),
+                    GTK_DIALOG_MODAL,
+                    "_Cancel", GTK_RESPONSE_CANCEL,
+                    "_Save", GTK_RESPONSE_OK,
+                    NULL);
+
+                GtkWidget* content_area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+                gtk_container_set_border_width(GTK_CONTAINER(content_area), 10);
+
+                // Create grid for form
+                GtkWidget* grid = gtk_grid_new();
+                gtk_grid_set_row_spacing(GTK_GRID(grid), 10);
+                gtk_grid_set_column_spacing(GTK_GRID(grid), 10);
+                gtk_container_add(GTK_CONTAINER(content_area), grid);
+
+                // App name
+                GtkWidget* name_label = gtk_label_new("App Name:");
+                gtk_widget_set_halign(name_label, GTK_ALIGN_START);
+                gtk_grid_attach(GTK_GRID(grid), name_label, 0, 0, 1, 1);
+                
+                GtkWidget* edit_name_entry = gtk_entry_new();
+                gtk_entry_set_text(GTK_ENTRY(edit_name_entry), current_name.c_str());
+                gtk_widget_set_hexpand(edit_name_entry, TRUE);
+                gtk_grid_attach(GTK_GRID(grid), edit_name_entry, 1, 0, 1, 1);
+
+                // URL
+                GtkWidget* url_label = gtk_label_new("URL:");
+                gtk_widget_set_halign(url_label, GTK_ALIGN_START);
+                gtk_grid_attach(GTK_GRID(grid), url_label, 0, 1, 1, 1);
+                
+                GtkWidget* edit_url_entry = gtk_entry_new();
+                gtk_entry_set_text(GTK_ENTRY(edit_url_entry), current_url.c_str());
+                gtk_widget_set_hexpand(edit_url_entry, TRUE);
+                gtk_grid_attach(GTK_GRID(grid), edit_url_entry, 1, 1, 1, 1);
+
+                // Icon URL
+                GtkWidget* icon_label = gtk_label_new("Icon URL (optional):");
+                gtk_widget_set_halign(icon_label, GTK_ALIGN_START);
+                gtk_grid_attach(GTK_GRID(grid), icon_label, 0, 2, 1, 1);
+                
+                GtkWidget* edit_icon_entry = gtk_entry_new();
+                gtk_entry_set_text(GTK_ENTRY(edit_icon_entry), current_icon_url.c_str());
+                gtk_widget_set_hexpand(edit_icon_entry, TRUE);
+                gtk_grid_attach(GTK_GRID(grid), edit_icon_entry, 1, 2, 1, 1);
+
+                gtk_widget_show_all(dialog);
+
+                int result = gtk_dialog_run(GTK_DIALOG(dialog));
+                
+                if (result == GTK_RESPONSE_OK) {
+                    const char* new_name = gtk_entry_get_text(GTK_ENTRY(edit_name_entry));
+                    const char* new_url = gtk_entry_get_text(GTK_ENTRY(edit_url_entry));
+                    const char* new_icon_url = gtk_entry_get_text(GTK_ENTRY(edit_icon_entry));
+
+                    if (!new_name || strlen(new_name) == 0 || !new_url || strlen(new_url) == 0) {
+                        gtk_widget_destroy(dialog);
+                        show_error_dialog("App name and URL are required!");
+                        g_free(app_name);
+                        return;
+                    }
+
+                    // Remove old files
+                    std::string icon_dir = home_dir + "/.local/share/icons/webapps";
+                    std::string data_dir = home_dir + "/.config/webapps/" + std::string(app_name);
+                    
+                    std::filesystem::remove(existing_desktop_file);
+                    std::filesystem::remove(apps_dir + "/" + std::string(app_name) + "_fav.desktop");
+                    std::filesystem::remove(icon_dir + "/" + std::string(app_name) + ".png");
+                    std::filesystem::remove(icon_dir + "/" + std::string(app_name) + "_fav.png");
+                    std::filesystem::remove_all(data_dir);
+
+                    // Create new app with updated values
+                    std::filesystem::create_directories(apps_dir);
+                    std::filesystem::create_directories(icon_dir);
+                    std::string new_data_dir = home_dir + "/.config/webapps/" + std::string(new_name);
+                    std::filesystem::create_directories(new_data_dir);
+
+                    // Handle icon
+                    std::string icon_file = icon_dir + "/" + std::string(new_name) + ".png";
+                    if (strlen(new_icon_url) > 0) {
+                        std::string cmd = "curl -fsSL \"" + std::string(new_icon_url) + "\" -o \"" + icon_file + "\"";
+                        if (system(cmd.c_str()) != 0) {
+                            generate_default_icon(new_name, icon_file);
+                        } else {
+                            // Resize downloaded icon to 200x200
+                            resize_icon_to_200x200(icon_file);
+                        }
+                    } else {
+                        generate_default_icon(new_name, icon_file);
+                    }
+
+                    // Create new desktop file
+                    std::string new_desktop_file = apps_dir + "/" + std::string(new_name) + ".desktop";
+                    std::string url_str = std::string(new_url);
+                    if (url_str.find("http://") != 0 && url_str.find("https://") != 0) {
+                        url_str = "https://" + url_str;
+                    }
+
+                    // Extract domain for better StartupWMClass
+                    std::string domain = url_str;
+                    size_t start = domain.find("://");
+                    if (start != std::string::npos) {
+                        domain = domain.substr(start + 3);
+                    }
+                    size_t end = domain.find("/");
+                    if (end != std::string::npos) {
+                        domain = domain.substr(0, end);
+                    }
+                    if (domain.substr(0, 4) == "www.") {
+                        domain = domain.substr(4);
+                    }
+
+                    // Find browser
+                    std::string browser_cmd = find_browser();
+                    if (browser_cmd.empty()) {
+                        gtk_widget_destroy(dialog);
+                        show_error_dialog("No Chrome/Chromium browser found!");
+                        g_free(app_name);
+                        return;
+                    }
+
+                    std::ofstream file(new_desktop_file);
+                    file << "[Desktop Entry]" << std::endl;
+                    file << "Version=1.0" << std::endl;
+                    file << "Type=Application" << std::endl;
+                    file << "Name=" << new_name << std::endl;
+                    file << "Comment=Web application for " << domain << std::endl;
+                    file << "Exec=" << browser_cmd << " --user-data-dir=\"" << new_data_dir << "\" --app=\"" << url_str << "\"" << std::endl;
+                    file << "Icon=" << icon_file << std::endl;
+                    file << "Terminal=false" << std::endl;
+                    file << "StartupNotify=true" << std::endl;
+                    file << "Categories=Network;WebBrowser;WebApps;" << std::endl;
+                    file << "MimeType=text/html;text/xml;application/xhtml+xml;" << std::endl;
+                    file << "StartupWMClass=crx_" << domain << std::endl;
+                    file.close();
+
+                    // Make executable
+                    std::filesystem::permissions(new_desktop_file, 
+                                               std::filesystem::perms::owner_all | 
+                                               std::filesystem::perms::group_read | 
+                                               std::filesystem::perms::others_read);
+
+                    // Update desktop database and refresh icon cache
+                    system(("update-desktop-database \"" + apps_dir + "\"").c_str());
+                    system("gtk-update-icon-cache -f -t ~/.local/share/icons/ 2>/dev/null || true");
+                    system("gtk-update-icon-cache -f -t /usr/share/icons/hicolor/ 2>/dev/null || true");
+                    system("xdg-desktop-menu forceupdate 2>/dev/null || true");
+
+                    show_info_dialog("Web app '" + std::string(new_name) + "' updated successfully!");
+                    refresh_app_list();
+                }
+
+                gtk_widget_destroy(dialog);
+
+            } catch (const std::exception& e) {
+                show_error_dialog("Error editing web app: " + std::string(e.what()));
+            }
+
+            g_free(app_name);
+        } else {
+            show_error_dialog("Please select an app to edit!");
         }
     }
 
@@ -352,13 +570,58 @@ public:
         return "";
     }
 
+    void resize_icon_to_200x200(const std::string& icon_path) {
+        // Check if the icon exists
+        if (!std::filesystem::exists(icon_path)) {
+            return;
+        }
+
+        // Get image dimensions using identify command
+        std::string cmd = "identify -format \"%wx%h\" \"" + icon_path + "\" 2>/dev/null";
+        FILE* pipe = popen(cmd.c_str(), "r");
+        if (!pipe) {
+            return;
+        }
+
+        char buffer[128];
+        std::string dimensions;
+        while (fgets(buffer, sizeof(buffer), pipe) != NULL) {
+            dimensions += buffer;
+        }
+        pclose(pipe);
+
+        // Remove trailing newline
+        if (!dimensions.empty() && dimensions.back() == '\n') {
+            dimensions.pop_back();
+        }
+
+        // Check if already 200x200
+        if (dimensions == "200x200") {
+            return; // Already correct size
+        }
+
+        // Create backup of original
+        std::string backup_path = icon_path + ".original";
+        std::filesystem::copy_file(icon_path, backup_path, std::filesystem::copy_options::overwrite_existing);
+
+        // Resize to 200x200 using ImageMagick convert
+        std::string resize_cmd = "convert \"" + icon_path + "\" -resize 200x200 \"" + icon_path + "\" 2>/dev/null";
+        int result = system(resize_cmd.c_str());
+        
+        if (result != 0) {
+            // If convert failed, try with different approach
+            resize_cmd = "convert \"" + backup_path + "\" -resize 200x200! \"" + icon_path + "\" 2>/dev/null";
+            system(resize_cmd.c_str());
+        }
+    }
+
     void generate_default_icon(const std::string& app_name, const std::string& icon_path) {
         // Create a simple SVG icon with the first letter
         std::string letter = app_name.empty() ? "W" : std::string(1, std::toupper(app_name[0]));
         std::string svg_content = R"(<?xml version="1.0" encoding="UTF-8"?>
-<svg width="64" height="64" xmlns="http://www.w3.org/2000/svg">
-  <rect width="64" height="64" fill="#3b82f6"/>
-  <text x="32" y="45" font-family="Arial, sans-serif" font-size="32" fill="white" text-anchor="middle">)" + letter + R"(</text>
+<svg width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+  <rect width="200" height="200" fill="#3b82f6"/>
+  <text x="100" y="140" font-family="Arial, sans-serif" font-size="100" fill="white" text-anchor="middle">)" + letter + R"(</text>
 </svg>)";
         
         std::string svg_file = icon_path + ".svg";
@@ -371,6 +634,9 @@ public:
                          "convert \"" + svg_file + "\" \"" + icon_path + "\" 2>/dev/null";
         system(cmd.c_str());
         std::filesystem::remove(svg_file);
+        
+        // Ensure the generated icon is 200x200
+        resize_icon_to_200x200(icon_path);
     }
 
     void show_error_dialog(const std::string& message) {
@@ -455,6 +721,9 @@ public:
                     std::string cmd = "curl -fsSL \"" + std::string(icon_url) + "\" -o \"" + icon_file + "\"";
                     if (system(cmd.c_str()) != 0) {
                         generate_default_icon(app_name, icon_file);
+                    } else {
+                        // Resize downloaded icon to 200x200
+                        resize_icon_to_200x200(icon_file);
                     }
                 } else {
                     // Use the original icon file
@@ -497,8 +766,11 @@ public:
                                            std::filesystem::perms::group_read | 
                                            std::filesystem::perms::others_read);
 
-                // Update desktop database
+                // Update desktop database and refresh icon cache
                 system(("update-desktop-database \"" + apps_dir + "\"").c_str());
+                system("gtk-update-icon-cache -f -t ~/.local/share/icons/ 2>/dev/null || true");
+                system("gtk-update-icon-cache -f -t /usr/share/icons/hicolor/ 2>/dev/null || true");
+                system("xdg-desktop-menu forceupdate 2>/dev/null || true");
                 
                 // Get current favorites list
                 std::string get_cmd = "gsettings get org.gnome.shell favorite-apps";
