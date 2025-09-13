@@ -53,7 +53,27 @@ distrobox enter gitbutler-env -- bash -c "~/.local/bin/gitbutler &"
 distrobox enter gitbutler-env -- bash -c "sudo ln -sf '/tmp/.mount_gitbut*/usr/bin/but' /usr/local/bin/but"
 ```
 
-## Step 7: Test GitButler Installation
+## Step 7: Configure SSH and Git Credentials
+
+Fix SSH permissions in the container (distrobox shares your home directory, but permissions may need adjustment):
+```bash
+distrobox enter gitbutler-env -- bash -c "chmod 700 ~/.ssh && chmod 600 ~/.ssh/config ~/.ssh/id_* && chmod 644 ~/.ssh/*.pub"
+```
+
+Set up git configuration to match your host system:
+```bash
+# Replace with your actual git username and email
+distrobox enter gitbutler-env -- bash -c "git config --global user.name 'your-username'"
+distrobox enter gitbutler-env -- bash -c "git config --global user.email 'your-email@example.com'"
+```
+
+Test SSH connectivity to GitHub:
+```bash
+distrobox enter gitbutler-env -- bash -c "ssh -T git@github.com"
+```
+*Expected output: "Hi username! You've successfully authenticated, but GitHub does not provide shell access."*
+
+## Step 8: Test GitButler Installation
 
 ```bash
 distrobox enter gitbutler-env -- bash -c "~/.local/bin/gitbutler --version"
@@ -61,7 +81,7 @@ distrobox enter gitbutler-env -- bash -c "but --help"
 distrobox enter gitbutler-env -- bash -c "git --version"
 ```
 
-## Step 8: Create Host System Launcher Script
+## Step 9: Create Host System Launcher Script
 
 Create `/home/uratmangun/.local/bin/gitbutler-launcher`:
 
@@ -82,7 +102,7 @@ Make it executable:
 chmod +x ~/.local/bin/gitbutler-launcher
 ```
 
-## Step 9: Create Desktop Entry
+## Step 10: Create Desktop Entry
 
 Create `/home/uratmangun/.local/share/applications/gitbutler.desktop`:
 
@@ -99,7 +119,7 @@ StartupNotify=true
 StartupWMClass=GitButler
 ```
 
-## Step 10: Extract and Install GitButler Icon
+## Step 11: Extract and Install GitButler Icon
 
 ```bash
 # Extract AppImage contents
