@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Web2App Manager
+Comment=Create and manage web application shortcuts
+Exec=/usr/local/bin/web2app-manager
+Icon=web2app-manager
+Terminal=false
+StartupNotify=true
+Categories=System;Utility;Settings;
+Keywords=web;app;shortcut;launcher;desktop;

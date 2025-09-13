@@ -1,0 +1,128 @@
+# Build directories
+build/
+Build/
+BUILD/
+out/
+cmake-build-*/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# Compiled Object files
+*.o
+*.obj
+*.ko
+*.elf
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Qt-MOC
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+*.qm
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.bak
+*.backup
+*.orig
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Package managers
+conan.lock
+conanbuildinfo.*
+conandata.yml
+conanfile.txt.user
+
+# Testing
+Testing/
+CTestTestfile.cmake
+
+# Installation directory (if using make install)
+install/
+Install/
+
+# Doxygen documentation
+doc/html/
+doc/latex/
+docs/html/
+docs/latex/
+
+# Profiling
+*.gcno
+*.gcda
+*.gcov
+gmon.out
+
+# Valgrind
+*.memcheck
+*.helgrind
+*.cachegrind
+*.callgrind
+
+# Clang tools
+compile_commands.json
+.clangd/
+.cache/
+
+# Package files
+*.tar.gz
+*.zip
+*.7z
+*.rar
+
+# Core dumps
+core
+core.*
